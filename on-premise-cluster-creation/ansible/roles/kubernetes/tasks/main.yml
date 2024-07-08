@@ -1,0 +1,93 @@
+- name: Install Docker
+  apt:
+    name: docker.io
+    state: present
+  become: yes
+
+- name: Ensure apt-transport-https and curl are installed
+  apt:
+    name:
+      - apt-transport-https
+      - curl
+    state: present
+
+- name: Create directory for apt keyrings
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Download Kubernetes signing key
+  command: curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key -o /tmp/Release.key
+  args:
+    creates: /tmp/Release.key
+
+- name: Convert Kubernetes signing key to gpg format
+  command: gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /tmp/Release.key
+  args:
+    creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+- name: Add Kubernetes repository
+  copy:
+    content: 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /'
+    dest: /etc/apt/sources.list.d/kubernetes.list
+
+- name: Update apt cache
+  apt:
+    update_cache: yes
+
+- name: Install Kubernetes components
+  apt:
+    name:
+      - kubelet
+      - kubeadm
+      - kubectl
+    state: present
+  become: yes
+
+- name: Create directory for join command file on worker nodes
+  file:
+    path: /opt/kubernetes
+    state: directory
+    mode: '0755'
+  become: yes
+
+- name: Initialize Kubernetes Master
+  shell: |
+    kubeadm init --apiserver-advertise-address={{ ansible_host }} --pod-network-cidr=192.168.56.11/24
+  when: "'master' in group_names"
+  become: yes
+
+- name: Set up kubeconfig for root
+  shell: |
+    mkdir -p $HOME/.kube
+    cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+    chown $(id -u):$(id -g) $HOME/.kube/config
+  when: "'master' in group_names"
+  become: yes
+
+- name: Install Pod Network
+  shell: |
+    kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+  when: "'master' in group_names"
+  become: yes
+
+- name: Generate and print join command on master
+  shell: kubeadm token create --print-join-command
+  register: join_command_raw
+  when: "'master' in group_names"
+  become: yes
+  changed_when: false
+  ignore_errors: true
+  tags: generate_join_command
+
+- name: Set Join Command
+  set_fact:
+    join_command: "{{ join_command_raw.stdout }}"
+  when: "'master' in group_names"
+
+- name: Join Cluster
+  shell: "{{ hostvars['master1'].join_command }}"
+  when: "'worker' in group_names"
+  become: yes
+  tags: join_cluster
