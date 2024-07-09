@@ -14,7 +14,7 @@ def transform(**kwargs):
 default_args = {
     'owner': 'airflow',
     'depends_on_past': False,
-    'start_date': datetime(2023, 1, 1),
+    'start_date': datetime(2024, 7, 8),
     'email_on_failure': False,
     'email_on_retry': False,
     'retries': 1,
@@ -24,7 +24,7 @@ default_args = {
 dag = DAG(
     'simple_etl',
     default_args=default_args,
-    description='A simple ETL DAG',
+    description='AETL DAG',
     schedule_interval=timedelta(days=1),
 )
 
